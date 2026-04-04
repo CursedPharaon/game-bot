@@ -8,12 +8,13 @@ from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from flask import Flask
 import threading
 import os
+import sys
 
 # ===== НАСТРОЙКИ =====
 GROUP_TOKEN = "vk1.a.QnYAWDAZ34tWzrWd4r5oHt5X0xQRf5WnQXO1C2-aJEP_pvrqVFIHIbd312NKSbtOkYCGhocqUm2EPXicYc4avsd6_IBswOJlgCZ1ltEnXKc2CkHv_rM1Mx2nGYokq0A7NglvG87Yyn7HT5asGIvyDjRluqgwyGqxiP_sktNAM0wc8azGqcRuDmMQfOUCcKUzxCE2Bx72cYjbJeHXsRSAjw"
 GROUP_ID = 237386759
 
-# ===== БАЗА ДАННЫХ (ОСТАЕТСЯ БЕЗ ИЗМЕНЕНИЙ) =====
+# ===== БАЗА ДАННЫХ =====
 conn = sqlite3.connect('game.db', check_same_thread=False)
 cursor = conn.cursor()
 
@@ -129,10 +130,12 @@ def handle_daily(user_id):
 def handle_top(user_id):
     top = cursor.execute("SELECT user_id, balance FROM users ORDER BY balance DESC LIMIT 10").fetchall()
     message = "🏆 ТОП-10 БОГАТЕЙШИХ 🏆\n\n"
+    
+    vk_session = vk_api.VkApi(token=GROUP_TOKEN)
+    vk = vk_session.get_api()
+    
     for i, (uid, bal) in enumerate(top, 1):
         try:
-            vk_session = vk_api.VkApi(token=GROUP_TOKEN)
-            vk = vk_session.get_api()
             user_info = vk.users.get(user_ids=uid)[0]
             name = f"{user_info['first_name']} {user_info['last_name']}"
         except:
@@ -179,60 +182,71 @@ def handle_dice_roll(user_id, bet):
 # ===== FLASK ДЛЯ RENDER HEALTHCHECK =====
 app = Flask(__name__)
 
+@app.route('/')
 @app.route('/healthcheck')
 def healthcheck():
     return "OK", 200
 
 # ===== ЗАПУСК БОТА В ПОТОКЕ =====
 def run_vk_bot():
-    vk_session = vk_api.VkApi(token=GROUP_TOKEN)
-    vk = vk_session.get_api()
-    longpoll = VkBotLongPoll(vk_session, GROUP_ID)
-    
-    print("🤖 ВК БОТ ЗАПУЩЕН!")
-    print(f"Группа ID: {GROUP_ID}")
-    
-    for event in longpoll.listen():
-        if event.type == VkBotEventType.MESSAGE_NEW:
-            user_id = event.obj.message['from_id']
-            text = event.obj.message.get('text', '').lower()
-            
-            if text == '/start' or text == 'начать':
-                msg, kb = handle_start(user_id)
-                vk.messages.send(user_id=user_id, message=msg, random_id=random.randint(1, 999999), keyboard=kb.get_keyboard())
-            else:
-                msg, kb = handle_start(user_id)
-                vk.messages.send(user_id=user_id, message=msg, random_id=random.randint(1, 999999), keyboard=kb.get_keyboard())
+    try:
+        vk_session = vk_api.VkApi(token=GROUP_TOKEN)
+        vk = vk_session.get_api()
+        longpoll = VkBotLongPoll(vk_session, GROUP_ID)
         
-        elif event.type == VkBotEventType.MESSAGE_EVENT:
-            user_id = event.obj.user_id
-            payload = json.loads(event.obj.payload)
-            event_id = event.obj.event_id
-            action = payload.get("type")
-            
-            if action == "menu":
-                msg, kb = handle_start(user_id)
-            elif action == "balance":
-                msg, kb = handle_balance(user_id)
-            elif action == "daily":
-                msg, kb = handle_daily(user_id)
-            elif action == "top":
-                msg, kb = handle_top(user_id)
-            elif action == "slots":
-                msg, kb = handle_slots(user_id)
-            elif action == "dice":
-                msg, kb = handle_dice_menu(user_id)
-            elif action == "spin":
-                bet = payload.get("bet", 10)
-                msg, kb = handle_spin(user_id, bet)
-            elif action == "dice_roll":
-                bet = payload.get("bet", 5)
-                msg, kb = handle_dice_roll(user_id, bet)
-            else:
-                msg, kb = "❌ Неизвестная команда", get_main_keyboard()
-            
-            vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=user_id, event_data=json.dumps({"type": "show_snackbar", "text": "✅"}))
-            vk.messages.send(user_id=user_id, message=msg, random_id=random.randint(1, 999999), keyboard=kb.get_keyboard())
+        print("🤖 ВК БОТ ЗАПУЩЕН!", flush=True)
+        print(f"Группа ID: {GROUP_ID}", flush=True)
+        sys.stdout.flush()
+        
+        for event in longpoll.listen():
+            try:
+                if event.type == VkBotEventType.MESSAGE_NEW:
+                    user_id = event.obj.message['from_id']
+                    text = event.obj.message.get('text', '').lower()
+                    
+                    if text == '/start' or text == 'начать':
+                        msg, kb = handle_start(user_id)
+                        vk.messages.send(user_id=user_id, message=msg, random_id=random.randint(1, 999999), keyboard=kb.get_keyboard())
+                    else:
+                        msg, kb = handle_start(user_id)
+                        vk.messages.send(user_id=user_id, message=msg, random_id=random.randint(1, 999999), keyboard=kb.get_keyboard())
+                
+                elif event.type == VkBotEventType.MESSAGE_EVENT:
+                    user_id = event.obj.user_id
+                    payload = json.loads(event.obj.payload)
+                    event_id = event.obj.event_id
+                    action = payload.get("type")
+                    
+                    if action == "menu":
+                        msg, kb = handle_start(user_id)
+                    elif action == "balance":
+                        msg, kb = handle_balance(user_id)
+                    elif action == "daily":
+                        msg, kb = handle_daily(user_id)
+                    elif action == "top":
+                        msg, kb = handle_top(user_id)
+                    elif action == "slots":
+                        msg, kb = handle_slots(user_id)
+                    elif action == "dice":
+                        msg, kb = handle_dice_menu(user_id)
+                    elif action == "spin":
+                        bet = payload.get("bet", 10)
+                        msg, kb = handle_spin(user_id, bet)
+                    elif action == "dice_roll":
+                        bet = payload.get("bet", 5)
+                        msg, kb = handle_dice_roll(user_id, bet)
+                    else:
+                        msg, kb = "❌ Неизвестная команда", get_main_keyboard()
+                    
+                    vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=user_id, event_data=json.dumps({"type": "show_snackbar", "text": "✅"}))
+                    vk.messages.send(user_id=user_id, message=msg, random_id=random.randint(1, 999999), keyboard=kb.get_keyboard())
+            except Exception as e:
+                print(f"Ошибка в событии: {e}", flush=True)
+                continue
+                
+    except Exception as e:
+        print(f"КРИТИЧЕСКАЯ ОШИБКА: {e}", flush=True)
+        sys.stdout.flush()
 
 if __name__ == "__main__":
     # Запускаем ВК бота в отдельном потоке
@@ -241,4 +255,5 @@ if __name__ == "__main__":
     
     # Запускаем Flask для healthcheck
     port = int(os.environ.get("PORT", 10000))
+    print(f"Flask сервер запущен на порту {port}", flush=True)
     app.run(host="0.0.0.0", port=port)

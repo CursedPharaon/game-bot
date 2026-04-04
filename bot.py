@@ -5,8 +5,6 @@ import json
 import sqlite3
 from datetime import datetime, timedelta
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
-from flask import Flask
-import threading
 import os
 import sys
 
@@ -179,16 +177,8 @@ def handle_dice_roll(user_id, bet):
     else:
         return f"🎲 Выпало: {roll} ({parity})\nТвой выбор: {user_choice}\n\n❌ Проигрыш! -{bet} монет\n💰 Баланс: {format_number(get_user(user_id)[1])}", get_dice_keyboard()
 
-# ===== FLASK ДЛЯ RENDER HEALTHCHECK =====
-app = Flask(__name__)
-
-@app.route('/')
-@app.route('/healthcheck')
-def healthcheck():
-    return "OK", 200
-
-# ===== ЗАПУСК БОТА В ПОТОКЕ =====
-def run_vk_bot():
+# ===== ЗАПУСК БОТА =====
+if __name__ == "__main__":
     try:
         vk_session = vk_api.VkApi(token=GROUP_TOKEN)
         vk = vk_session.get_api()
@@ -196,6 +186,7 @@ def run_vk_bot():
         
         print("🤖 ВК БОТ ЗАПУЩЕН!", flush=True)
         print(f"Группа ID: {GROUP_ID}", flush=True)
+        print("Бот работает через LongPoll", flush=True)
         sys.stdout.flush()
         
         for event in longpoll.listen():
@@ -240,6 +231,7 @@ def run_vk_bot():
                     
                     vk.messages.sendMessageEventAnswer(event_id=event_id, user_id=user_id, peer_id=user_id, event_data=json.dumps({"type": "show_snackbar", "text": "✅"}))
                     vk.messages.send(user_id=user_id, message=msg, random_id=random.randint(1, 999999), keyboard=kb.get_keyboard())
+                    
             except Exception as e:
                 print(f"Ошибка в событии: {e}", flush=True)
                 continue
@@ -247,13 +239,3 @@ def run_vk_bot():
     except Exception as e:
         print(f"КРИТИЧЕСКАЯ ОШИБКА: {e}", flush=True)
         sys.stdout.flush()
-
-if __name__ == "__main__":
-    # Запускаем ВК бота в отдельном потоке
-    bot_thread = threading.Thread(target=run_vk_bot, daemon=True)
-    bot_thread.start()
-    
-    # Запускаем Flask для healthcheck
-    port = int(os.environ.get("PORT", 10000))
-    print(f"Flask сервер запущен на порту {port}", flush=True)
-    app.run(host="0.0.0.0", port=port)

@@ -19,7 +19,7 @@ if not GROUP_TOKEN or not GROUP_ID or not BOT_OWNER_ID:
     exit(1)
 # ===============================================
 
-# Функция создания сессии (для переподключения)
+# Функция создания сессии
 def create_session():
     session = vk_api.VkApi(token=GROUP_TOKEN)
     api = session.get_api()
@@ -185,21 +185,43 @@ def get_link(uid):
         return f"@{name}"
     return f"[id{uid}|юзер]"
 
+# ========== ИСПРАВЛЕННАЯ ФУНКЦИЯ РАССЫЛКИ ==========
 def broadcast_all(text, sender):
     sender_link = get_link(sender)
     msg = f"📢 **РАССЫЛКА ОТ ВЛАДЕЛЬЦА**\n\nОт: {sender_link}\n\n{text}"
     sent = 0
+    failed = 0
+    
     try:
-        convs = vk.messages.getConversations(count=200)
-        for c in convs.get('items', []):
-            pid = c['conversation']['peer']['id']
-            if pid > 2000000000:
-                if send(pid, msg):
+        # Получаем ВСЕ беседы, где есть бот
+        conversations = vk.messages.getConversations(count=200, filter='all')
+        
+        print(f"📋 Получено {len(conversations.get('items', []))} диалогов")
+        
+        for item in conversations.get('items', []):
+            peer_id = item['conversation']['peer']['id']
+            
+            # Проверяем, что это беседа (peer_id > 2000000000)
+            if peer_id > 2000000000:
+                try:
+                    vk.messages.send(
+                        peer_id=peer_id,
+                        message=msg,
+                        random_id=random.randint(1, 2**31)
+                    )
                     sent += 1
-                time.sleep(0.3)
+                    print(f"✅ Отправлено в беседу {peer_id}")
+                    time.sleep(0.3)
+                except Exception as e:
+                    failed += 1
+                    print(f"❌ Ошибка отправки в {peer_id}: {e}")
+        
+        print(f"📊 Рассылка завершена: отправлено {sent}, ошибок {failed}")
+        
     except Exception as e:
-        print(f"Ошибка рассылки: {e}")
-    return sent
+        print(f"❌ Ошибка получения списка бесед: {e}")
+    
+    return sent, failed
 
 # ================= ВЕБ-СЕРВЕР =================
 class HealthHandler(BaseHTTPRequestHandler):
@@ -215,7 +237,7 @@ def run_web():
 
 threading.Thread(target=run_web, daemon=True).start()
 
-# ================= ОСНОВНОЙ ЦИКЛ С ПЕРЕПОДКЛЮЧЕНИЕМ =================
+# ================= ОСНОВНОЙ ЦИКЛ =================
 print("=" * 50)
 print("✅ Adrenaline Manager ЗАПУЩЕН!")
 print(f"👑 Владелец бота: {BOT_OWNER_ID}")
@@ -260,7 +282,6 @@ while True:
             if not text.startswith('!'):
                 continue
             
-            # Убираем ! и получаем команду
             command_text = text[1:].strip().lower()
             if not command_text:
                 continue
@@ -331,7 +352,7 @@ while True:
                 send(peer, chat["rules"], msg_id)
                 continue
             
-            # !+правила (только владелец беседы)
+            # !+правила
             if command == "+правила" and role >= 100:
                 new_rules = args[8:].strip()
                 if not new_rules:
@@ -348,9 +369,9 @@ while True:
                 if not broadcast_text:
                     send(peer, "❌ Использование: !рассылка Текст", msg_id)
                 else:
-                    send(peer, "⏳ Рассылаю...", msg_id)
-                    sent = broadcast_all(broadcast_text, from_id)
-                    send(peer, f"✅ Рассылка завершена!\n📨 Отправлено в {sent} чатов", msg_id)
+                    send(peer, "⏳ Начинаю рассылку...", msg_id)
+                    sent, failed = broadcast_all(broadcast_text, from_id)
+                    send(peer, f"✅ **Рассылка завершена!**\n\n📨 Отправлено в {sent} чатов\n❌ Ошибок: {failed}", msg_id)
                 continue
             
             # !профиль
